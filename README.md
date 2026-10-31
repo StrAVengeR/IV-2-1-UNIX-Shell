@@ -37,6 +37,3 @@ docs/            Report, Manual
 
 ## Баг
 IV-2-1: [нэр, ID — гишүүн бүр]
-
-# osh
-
