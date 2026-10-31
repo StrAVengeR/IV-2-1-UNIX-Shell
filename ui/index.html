@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="mn"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>osh — процессын мод</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mut:#6a737d;--bd:#d8dce1;--ac:#2d6cdf;--run:#d98a00;--ok:#1f8a4c;--err:#c0392b;--zom:#8e44ad;--term:#101418;--termtx:#d6e2ee}
+@media(prefers-color-scheme:dark){:root{--bg:#14171b;--card:#1d2127;--tx:#e6e9ed;--mut:#98a2ad;--bd:#343a42;--ac:#6b9bff;--run:#f0b03a;--ok:#4cc27d;--err:#ff7a6b;--zom:#c08bff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px system-ui,sans-serif;padding:16px}
+h1{font-size:18px;margin:0 0 12px}main{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:1100px;margin:auto}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+section{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;min-width:0}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 8px}
+#term{background:var(--term);color:var(--termtx);font:13px ui-monospace,Menlo,monospace;height:300px;overflow:auto;padding:8px;border-radius:6px;white-space:pre-wrap}
+#term .p{color:#7fb2ff}#term .c{color:#8b98a5}
+form{display:flex;gap:6px;margin-top:8px}input{flex:1;padding:8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--tx);font:13px ui-monospace,monospace}
+button{padding:7px 12px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--tx);cursor:pointer}
+button.pri{background:var(--ac);border-color:var(--ac);color:#fff}
+.ex{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}.ex button{font:12px ui-monospace,monospace}
+#err{color:var(--err);min-height:18px;font-size:13px;margin-top:6px}
+.sh{border:2px solid var(--ac);border-radius:8px;padding:6px 10px;font-weight:600}
+.cmd{margin:8px 0 0 14px;border-left:2px solid var(--bd);padding-left:10px}
+.cl{font:12px ui-monospace,monospace;color:var(--mut)}
+.pr{display:flex;gap:8px;align-items:center;margin:4px 0;padding:5px 8px;border:1px solid var(--bd);border-radius:6px;font:13px ui-monospace,monospace;flex-wrap:wrap}
+.b{margin-left:auto;font:11px system-ui;padding:2px 7px;border-radius:10px;border:1px solid currentColor}
+.running{color:var(--run)}.exited{color:var(--ok)}.exited.bad{color:var(--err)}.zombie{color:var(--zom)}.gone{color:var(--mut)}
+#hist{font:12px ui-monospace,monospace;margin:0;padding-left:20px;max-height:140px;overflow:auto}
+.leg{font-size:12px;color:var(--mut);margin-top:8px;line-height:1.6}
+</style></head><body>
+<h1>osh · процессын мод <span class="cl" id="ses"></span></h1>
+<main>
+<section><h2>Терминал (нэг тасралтгүй session)</h2>
+<div id="term" aria-live="polite"></div>
+<form id="f"><input id="in" autocomplete="off" placeholder="жишээ: ls | wc -l" aria-label="command"><button class="pri">Run</button></form>
+<div class="ex" id="ex"></div><div id="err"></div>
+<div style="margin-top:8px"><button id="rs">Reset (шинэ session)</button></div></section>
+<section><h2>Процессын мод (бодит PID)</h2><div id="tree"></div>
+<h2 style="margin-top:14px">History</h2><ol id="hist"></ol>
+<div class="leg"><span class="running">running</span> ажиллаж байна · <span class="zombie">zombie</span> дууссан ч shell хараахан wait хийгээгүй · <span class="exited">exited</span> exit code-той · <span class="gone">gone</span> OS-оос арилсан</div></section>
+</main>
+<script>
+const $=id=>document.getElementById(id),term=$('term');
+const EX=['pwd','ls | wc -l','echo hi | tr a-z A-Z | cat','echo data > /tmp/o.txt','cat < /tmp/o.txt','sleep 3 &','!!','history','false','nosuchcmd'];
+EX.forEach(c=>{const b=document.createElement('button');b.textContent=c;b.type='button';b.onclick=()=>{$('in').value=c;$('in').focus()};$('ex').append(b)});
+function put(t,cls){const s=document.createElement('span');if(cls)s.className=cls;s.textContent=t;term.append(s);term.scrollTop=1e9}
+async function post(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
+$('f').onsubmit=async e=>{e.preventDefault();const c=$('in').value;$('err').textContent='';
+ if(c.length>1000){$('err').textContent='Команд 1000 тэмдэгтээс урт байж болохгүй';return}
+ put('osh> ','p');put(c+'\n');$('in').value='';
+ try{const r=await post('/api/run',{cmd:c});put(r.output);
+  if(r.timeout)put('[хугацаа хэтэрлээ — команд дуусаагүй]\n','c');
+  else if(r.ended)put('[session дууслаа — дараагийн командаар шинээр эхэлнэ]\n','c');
+  else if(c.trim())put('[exit '+r.code+']\n','c')}catch(x){$('err').textContent='Алдаа: '+x.message}
+ refresh()};
+$('rs').onclick=async()=>{await post('/api/reset');term.textContent='';refresh()};
+function badge(p){const s=document.createElement('span');const bad=p.state==='exited'&&p.code!==0;
+ s.className='b '+p.state+(bad?' bad':'');s.textContent=p.state==='exited'?'exited '+p.code:p.state;return s}
+async function refresh(){try{const d=await (await fetch('/api/tree')).json();
+ $('ses').textContent='· shell PID '+d.shell+(d.alive?'':' (дууссан)');
+ const t=$('tree');t.textContent='';const sh=document.createElement('div');sh.className='sh';sh.textContent='osh · PID '+d.shell;t.append(sh);
+ d.commands.slice(-12).forEach(c=>{const w=document.createElement('div');w.className='cmd';
+  const l=document.createElement('div');l.className='cl';l.textContent='#'+c.seq+'  '+c.line;w.append(l);
+  c.procs.forEach(p=>{const r=document.createElement('div');r.className='pr';
+   r.append('PID '+p.pid+' · '+p.cmd+(p.bg?' (bg)':''),badge(p));w.append(r)});t.append(w)});
+ const h=$('hist');h.textContent='';d.history.slice(-30).forEach(x=>{const li=document.createElement('li');li.textContent=x;h.append(li)})}catch(x){}}
+setInterval(refresh,800);refresh();
+</script></body></html>
