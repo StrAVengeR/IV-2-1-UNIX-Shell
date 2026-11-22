@@ -30,5 +30,13 @@ check T20_longline  "line too long"   "$(python3 -c "print('a'*3000)" | $OSH 2>&
 OSH_LOG=$T/log.jsonl $OSH <<< $'echo x | cat' >/dev/null
 check T21_log_spawn '"ev":"spawn"'    "$(cat $T/log.jsonl)"
 check T22_log_exit  '"ev":"exit"'     "$(cat $T/log.jsonl)"
+# --- Бие даалт 2: шүүмжээр нэмсэн тестүүд ---
+check T23_exit_trailing  "0"                     "$(printf 'exit \necho after\n' | $OSH 2>&1 | grep -c after)"
+check T24_double_amp     "syntax error near '&'" "$(printf 'echo a &&\n' | $OSH 2>&1)"
+check T25_cd_status      "READY 1"               "$(printf 'cd /no_such_dir_zz\nexit\n' | OSH_PROTO=1 $OSH 2>/dev/null | cat -v)"
+check T26_parse_status   "READY 2"               "$(printf '| ls\nexit\n' | OSH_PROTO=1 $OSH 2>/dev/null | cat -v)"
+check T27_line_1023_ok   "xxxxx"                 "$(python3 -c "print('echo '+'x'*1018)" | $OSH 2>&1)"
+check T28_line_1024_bad  "line too long"         "$(python3 -c "print('echo '+'x'*1019)" | $OSH 2>&1)"
+check T29_child_stdin    "after-cat"             "$(printf 'cat\necho after-cat\n' | OSH_PROTO=1 $OSH 2>/dev/null | cat -v)"
 rm -rf "$T"
 echo "RESULT: $pass passed, $fail failed"; [ $fail -eq 0 ]

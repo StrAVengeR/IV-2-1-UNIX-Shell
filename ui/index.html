@@ -61,6 +61,6 @@ async function refresh(){try{const d=await (await fetch('/api/tree')).json();
   const l=document.createElement('div');l.className='cl';l.textContent='#'+c.seq+'  '+c.line;w.append(l);
   c.procs.forEach(p=>{const r=document.createElement('div');r.className='pr';
    r.append('PID '+p.pid+' · '+p.cmd+(p.bg?' (bg)':''),badge(p));w.append(r)});t.append(w)});
- const h=$('hist');h.textContent='';d.history.slice(-30).forEach(x=>{const li=document.createElement('li');li.textContent=x;h.append(li)})}catch(x){}}
+ const h=$('hist');h.textContent='';d.history.slice(-30).forEach(x=>{const li=document.createElement('li');li.textContent=x;h.append(li)})}catch(x){ $('err').textContent='Мод шинэчлэхэд алдаа: '+x.message; }}
 setInterval(refresh,800);refresh();
 </script></body></html>

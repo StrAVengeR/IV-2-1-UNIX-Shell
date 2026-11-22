@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/wait.h>
+#include <signal.h>
+static int proto_mode = 0;
 
 #define MAX_LINE   1024
 #define MAX_ARGS   64
@@ -35,10 +37,14 @@ static long now_ms(void) {
 }
 
 static void json_esc(char *dst, size_t cap, const char *src) {
-    size_t j = 0;
-    for (const char *p = src; *p && j + 3 < cap; p++) {
+    size_t j = 0; const char *p = src;
+    for (; *p && j + 3 < cap; p++) {
         if (*p == '"' || *p == '\\') dst[j++] = '\\';
         if ((unsigned char)*p >= 32) dst[j++] = *p;
+    }
+    if (*p) { /* truncated: never leave a split UTF-8 sequence */
+        while (j > 0 && ((unsigned char)dst[j-1] & 0xC0) == 0x80) j--;
+        if (j > 0 && (unsigned char)dst[j-1] >= 0xC0) j--;
     }
     dst[j] = 0;
 }
@@ -103,6 +109,7 @@ static int parse(const char *line, Stage *st, int *bg) {
             if (expect) { fprintf(stderr, "osh: syntax error near '%c'\n", c); return -1; }
             expect = (c == '<') ? 1 : 2;
         } else if (special && c == '&') {
+            if (*bg) { fprintf(stderr, "osh: syntax error near '&'\n"); return -1; }
             *bg = 1;
         } else {
             if (*bg) { fprintf(stderr, "osh: '&' must be last\n"); return -1; }
@@ -132,6 +139,7 @@ static int run(Stage *st, int n, int bg, const char *line) {
         pid_t pid = fork();
         if (pid < 0) { perror("fork"); return 1; }
         if (pid == 0) {
+            signal(SIGINT, SIG_DFL);
             if (prev != -1) { dup2(prev, 0); close(prev); }
             if (i < n - 1) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); }
             if (st[i].in) {
@@ -144,6 +152,7 @@ static int run(Stage *st, int n, int bg, const char *line) {
                 if (f < 0) { fprintf(stderr, "osh: %s: %s\n", st[i].out, strerror(errno)); _exit(1); }
                 dup2(f, 1); close(f);
             }
+            if (prev == -1 && !st[i].in && (bg || proto_mode)) { int z = open("/dev/null", O_RDONLY); if (z >= 0) { dup2(z, 0); close(z); } }
             execvp(st[i].argv[0], st[i].argv);
             fprintf(stderr, "osh: %s: %s\n", st[i].argv[0], strerror(errno));
             _exit(127);
@@ -168,11 +177,13 @@ static int run(Stage *st, int n, int bg, const char *line) {
 
 int main(void) {
     t0_ms = now_ms();
+    signal(SIGINT, SIG_IGN);
     const char *lp = getenv("OSH_LOG");
     if (lp) log_fd = open(lp, O_WRONLY | O_CREAT | O_APPEND, 0644);
     log_event("shell", getpid(), getppid(), "osh", 0, 0);
-    char line[MAX_LINE]; Stage st[MAX_STAGES];
+    char line[MAX_LINE + 1]; Stage st[MAX_STAGES];
     int tty = isatty(0), proto = getenv("OSH_PROTO") != NULL;
+    proto_mode = proto;
     if (proto) setvbuf(stdout, NULL, _IOLBF, 0);
     for (;;) {
         reap_background();
@@ -184,6 +195,7 @@ int main(void) {
             int ch; while ((ch = getchar()) != '\n' && ch != EOF); continue;
         }
         line[strcspn(line, "\n")] = 0;
+        { size_t L = strlen(line); while (L && (line[L-1] == ' ' || line[L-1] == '\t')) line[--L] = 0; }
         char *s = line; while (*s == ' ' || *s == '\t') s++;
         if (!*s) continue;
         if (!strcmp(s, "exit")) break;
@@ -198,10 +210,11 @@ int main(void) {
             continue;
         }
         int bg, n = parse(s, st, &bg);
-        if (n <= 0) continue;
+        if (n < 0) { last_status = 2; continue; }
+        if (n == 0) continue;
         if (!strcmp(st[0].argv[0], "cd") && n == 1) {
             const char *d = st[0].argc > 1 ? st[0].argv[1] : getenv("HOME");
-            if (!d || chdir(d) < 0) fprintf(stderr, "osh: cd: %s\n", strerror(errno));
+            if (!d || chdir(d) < 0) { fprintf(stderr, "osh: cd: %s\n", strerror(errno)); last_status = 1; }
             continue;
         }
         run(st, n, bg, s);
